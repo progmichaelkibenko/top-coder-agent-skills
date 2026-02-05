@@ -35,8 +35,6 @@ npx skills add progmichaelkibenko/top-coder-agent-skills
 pnpx skills add progmichaelkibenko/top-coder-agent-skills
 ```
 
-By default, skills install at **project** level (e.g. `.cursor/skills/` for Cursor). Use `-g` for global, `--list` to list skills in a repo, `--skill <name>` to install specific skills.
-
 Skills follow the [Agent Skills specification](https://agentskills.io/specification) (SKILL.md with YAML frontmatter: `name`, `description`, optional `license`, `metadata`, etc.). Discover more at [skills.sh](https://skills.sh).
 
 ### Skills in this repo
