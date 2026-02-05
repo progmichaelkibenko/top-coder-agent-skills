@@ -26,26 +26,14 @@ Where a concept differs by language or ecosystem, the skill calls it out and giv
 
 You can install skills from this repo using the [skills CLI](https://github.com/vercel-labs/skills) (Vercel’s open agent skills tool). It works with Cursor, Claude Code, Windsurf, and other [supported agents](https://github.com/vercel-labs/skills#supported-agents).
 
-Use **`npx skills add`** (not the deprecated `add-skill` package).
+Use **`npx skills add`** (not the deprecated `add-skill` package). Other commands: `skills list`, `skills update`, `skills remove`.
 
 ```bash
-# Install all skills from this repo
 npx skills add progmichaelkibenko/top-coder-agent-skills
-
-# List available skills first
-npx skills add progmichaelkibenko/top-coder-agent-skills --list
-
-# Install only specific skills
-npx skills add progmichaelkibenko/top-coder-agent-skills --skill meta-skill --skill top-coder-meta-skill
-
-# Install globally (all projects)
-npx skills add progmichaelkibenko/top-coder-agent-skills -g
-
-# Install for specific agents only
-npx skills add progmichaelkibenko/top-coder-agent-skills -a cursor -a claude-code
+pnpx skills add progmichaelkibenko/top-coder-agent-skills
 ```
 
-By default, skills are installed at **project** level (e.g. `.cursor/skills/` for Cursor), so your team shares the same skills via the repo. Use `-g` for **global** install (`~/.cursor/skills/` etc.).
+By default, skills install at **project** level (e.g. `.cursor/skills/` for Cursor). Use `-g` for global, `--list` to list skills in a repo, `--skill <name>` to install specific skills.
 
 Skills follow the [Agent Skills specification](https://agentskills.io/specification) (SKILL.md with YAML frontmatter: `name`, `description`, optional `license`, `metadata`, etc.). Discover more at [skills.sh](https://skills.sh).
 
