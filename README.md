@@ -44,6 +44,7 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 | **meta-skill** | General skill for adding *any* agent skill to *any* repo. Asks discovery questions (purpose, location, triggers, domain knowledge, output format), then generates a valid SKILL.md. Use when creating a new skill elsewhere or when the user asks how to author a skill. |
 | **top-coder-meta-skill** | Adds skills *to this repo only* (design patterns, architecture, SOLID, clean code). Produces Top-Coder–style SKILL.md with code contrasts and authoring best practices. Use when adding a new skill to top-coder-agent-skills. |
 | **strategy-pattern-nodejs** | Explains and implements the Strategy pattern in Node.js backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
+| **strategy-pattern-python** | Explains and implements the Strategy pattern in Python backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
 
 ## How to use these skills (manual)
 
