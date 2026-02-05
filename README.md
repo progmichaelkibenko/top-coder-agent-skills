@@ -20,6 +20,7 @@ Skills and examples are provided for:
 - **Python** — Patterns and principles applied in Python (type hints, dataclasses, protocols, dependency injection, etc.).
 - **Node.js** — Same ideas in JavaScript/TypeScript (modules, interfaces, DI, testing, etc.).
 - **Go** — Same ideas in Go (interfaces, structs, composition, context, testing, etc.).
+- **React** — Same ideas in React (functional components, hooks, composition, TypeScript, testing, etc.).
 
 Where a concept differs by language or ecosystem, the skill calls it out and gives language-specific guidance.
 
@@ -47,6 +48,7 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 | **strategy-pattern-nodejs** | Explains and implements the Strategy pattern in Node.js backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
 | **strategy-pattern-python** | Explains and implements the Strategy pattern in Python backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
 | **strategy-pattern-go** | Explains and implements the Strategy pattern in Go backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
+| **strategy-pattern-react** | Explains and implements the Strategy pattern in React apps. Use when the user mentions strategy pattern, interchangeable algorithms, sort/export/validation strategies in the UI, or replacing conditionals with swappable behavior in components. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/strategy). |
 
 ## How to use these skills (manual)
 
@@ -57,7 +59,7 @@ Each skill lives in its own directory under `skills/<skill-name>/` with a `SKILL
 
 ## Contributing
 
-Contributions are welcome: new skills, improvements to existing ones, or more Python/Node/Go examples. Keep skills **concise**, **actionable**, and aligned with the topics above (design patterns, architecture, SOLID, clean code).
+Contributions are welcome: new skills, improvements to existing ones, or more Python/Node/Go/React examples. Keep skills **concise**, **actionable**, and aligned with the topics above (design patterns, architecture, SOLID, clean code).
 
 ## License
 
