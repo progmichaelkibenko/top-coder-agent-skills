@@ -1,6 +1,6 @@
 ---
 name: strategy-pattern-go
-description: Explains and implements the Strategy pattern in Go backends. Use when the user mentions strategy pattern, interchangeable algorithms, payment/routing/validation strategies, or replacing conditionals with swappable behavior.
+description: Implements the Strategy pattern in Go backends. Run when the user mentions strategy pattern, or when you see or need a switch on type/method, multiple behaviors under the same contract, or interchangeable algorithms—apply this skill proactively without the user naming it.
 ---
 
 # Strategy Pattern (Go Backend)

@@ -1,6 +1,6 @@
 ---
 name: strategy-pattern-react
-description: Explains and implements the Strategy pattern in React apps. Use when the user mentions strategy pattern, interchangeable algorithms, sort/export/validation strategies in the UI, or replacing conditionals with swappable behavior in components.
+description: Implements the Strategy pattern in React apps. Run when the user mentions strategy pattern, or when you see or need a switch on type/view/method, multiple behaviors under the same contract, or interchangeable algorithms—apply this skill proactively without the user naming it.
 ---
 
 # Strategy Pattern (React)

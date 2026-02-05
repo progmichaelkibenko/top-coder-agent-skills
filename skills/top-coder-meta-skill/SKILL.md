@@ -18,8 +18,9 @@ Produce a new `SKILL.md` (and optional `references/`) that is modular, token-eff
 - **name:** Kebab-case, 1–64 chars, lowercase letters and hyphens only. No leading/trailing or consecutive hyphens. Must match the skill directory name.
   - ✅ `repository-pattern`, `dependency-inversion`
   - ❌ `helper`, `utils`, `My-Pattern`
-- **description:** Third person only. Include **WHAT** (what the skill does) and **WHEN** (trigger scenarios). Use trigger-heavy phrasing so the agent knows when to activate.
+- **description:** Third person only. Include **WHAT** (what the skill does) and **WHEN** (trigger scenarios). Use trigger-heavy phrasing so the agent knows when to activate. For pattern skills (e.g. Strategy), include both explicit triggers (user mentions the pattern) and **situational triggers** (e.g. "when you see a switch on type", "multiple behaviors under the same contract") so the skill runs proactively when the agent identifies the situation, not only when the user names the pattern.
   - ✅ "Implements the Repository pattern for data access abstraction. Use when the user mentions repository, data access layer, or abstracting persistence."
+  - ✅ "Implements the Strategy pattern. Run when the user mentions strategy, or when you see/need a switch on type, same contract with different behavior, or interchangeable algorithms—apply proactively without the user naming it."
   - ❌ "Helps with repositories" or "You can use this for repos."
 
 ### 2. Core Instruction
