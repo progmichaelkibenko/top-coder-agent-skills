@@ -22,9 +22,9 @@ Skills and examples are provided for:
 
 Where a concept differs by language or ecosystem, the skill calls it out and gives language-specific guidance.
 
-## Installing skills (Vercel / skills CLI)
+## Installing skills (skills CLI)
 
-You can install skills from this repo using the [skills CLI](https://github.com/vercel-labs/skills) (Vercel’s open agent skills tool). It works with Cursor, Claude Code, Windsurf, and other [supported agents](https://github.com/vercel-labs/skills#supported-agents).
+You can install skills from this repo using the [skills CLI](https://github.com/vercel-labs/skills). It works with Cursor, Claude Code, Windsurf, and other [supported agents](https://github.com/vercel-labs/skills#supported-agents).
 
 Use **`npx skills add`** (not the deprecated `add-skill` package). Other commands: `skills list`, `skills update`, `skills remove`.
 
