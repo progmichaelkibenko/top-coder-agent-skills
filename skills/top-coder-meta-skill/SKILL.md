@@ -53,6 +53,7 @@ Apply these when writing the generated skill:
 1. Identify the core design pattern or principle.
 2. Draft `SKILL.md` using the structure above and the authoring best practices.
 3. Ensure output is valid Markdown and YAML and ready to save under `skills/<skill-name>/` in this repo.
+4. **Update the README:** Add a row for the new skill to the "Skills in this repo" table in the repo root `README.md` (skill name and description).
 
 ## 🛑 Quality Gate
 
