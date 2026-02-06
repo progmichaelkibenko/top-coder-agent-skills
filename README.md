@@ -51,6 +51,10 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 | **chain-of-responsibility-go** | Implements the Chain of Responsibility pattern in Go. Use when you need to chain handlers that each process and pass to the next—validation pipelines, processing steps, transformation chains, or any sequential pipeline. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/chain-of-responsibility). |
 | **chain-of-responsibility-python** | Implements the Chain of Responsibility pattern in Python. Use when you need to chain handlers that each process and pass to the next—validation pipelines, processing steps, transformation chains, or any sequential pipeline. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/chain-of-responsibility). |
 | **chain-of-responsibility-react** | Implements the Chain of Responsibility pattern in React. Use when you need to chain handlers that each process and pass to the next—validation pipelines, contextual help, event handling, or any sequential pipeline. Source: [Refactoring.Guru](https://refactoring.guru/design-patterns/chain-of-responsibility). |
+| **pipeline-pattern-nodejs** | Implements the Pipeline pattern in Node.js for data transformation. Use for fixed-sequence stages (parse → normalize → enrich → serialize)—ETL, parsing, data processing. Differs from CoR: runs to completion, no early exit. |
+| **pipeline-pattern-go** | Implements the Pipeline pattern in Go for data transformation. Use for fixed-sequence stages (parse → normalize → enrich → serialize)—ETL, parsing, data processing. Differs from CoR: runs to completion, no early exit. |
+| **pipeline-pattern-python** | Implements the Pipeline pattern in Python for data transformation. Use for fixed-sequence stages (parse → normalize → enrich → serialize)—ETL, parsing, data processing. Differs from CoR: runs to completion, no early exit. |
+| **pipeline-pattern-react** | Implements the Pipeline pattern in React for data transformation. Use for fixed-sequence stages in the UI—formatting, export, parsing. Differs from CoR: runs to completion, no early exit. |
 
 ## How to use these skills (manual)
 

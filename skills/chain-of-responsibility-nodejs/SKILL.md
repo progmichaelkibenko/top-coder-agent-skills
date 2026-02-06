@@ -152,6 +152,19 @@ Benefits: add or reorder validators by composing the chain; each validator is a 
 
 ---
 
+## Pipeline vs Chain of Responsibility
+
+| Feature | Pipeline | Chain of Responsibility |
+|---------|----------|--------------------------|
+| **Execution** | Fixed, mandatory sequence | Conditional; handler decides whether to pass to the next |
+| **Flow** | Linear, no branching | Allows flexible termination and branching |
+| **Termination** | Runs to completion (barring errors) | Can be terminated early by a handler |
+| **Use cases** | Data processing, parsing, ETL | Event handling, approval workflows, validation, message filtering |
+
+Use **Pipeline** when every stage must run in a fixed order (e.g. data transformation: parse → normalize → enrich → serialize). Use **CoR** when handlers can short-circuit or decide not to pass (e.g. validation, approval chains).
+
+---
+
 ## Reference
 
 - [Chain of Responsibility — Refactoring.Guru](https://refactoring.guru/design-patterns/chain-of-responsibility): intent, problem/solution, structure, applicability, pros/cons, relations with Command/Decorator/Composite.
