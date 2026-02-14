@@ -24,7 +24,21 @@ import asyncio
 import os
 import sys
 
-from debugger_core.session import DebugSession
+# Require top-coder-ai-skills-debugger (provides debugger_core). Install globally or in env:
+#   pip install top-coder-ai-skills-debugger
+#   uv add top-coder-ai-skills-debugger   (if using uv in this project)
+try:
+    from debugger_core.session import DebugSession
+except ModuleNotFoundError as e:
+    if "debugger_core" in str(e) or e.name == "debugger_core":
+        print(
+            "Error: top-coder-ai-skills-debugger is not installed. Install it first:\n"
+            "  pip install top-coder-ai-skills-debugger\n"
+            "  or (in a project with uv): uv add top-coder-ai-skills-debugger",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    raise
 
 LANGUAGE = "node"
 

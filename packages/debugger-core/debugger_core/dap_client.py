@@ -101,8 +101,8 @@ class DAPClient:
             "initialize",
             {
                 "adapterID": self._adapter.adapter_id,
-                "clientID": "debugger-core",
-                "clientName": "debugger-core",
+                "clientID": "top-coder-ai-skills-debugger",
+                "clientName": "top-coder-ai-skills-debugger",
                 "linesStartAt1": True,
                 "columnsStartAt1": True,
                 "pathFormat": "path",

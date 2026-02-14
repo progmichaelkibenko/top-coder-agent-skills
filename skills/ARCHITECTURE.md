@@ -1,6 +1,6 @@
 # Debugger Skills -- Architecture
 
-This document describes the internal architecture of the **debugger-nodejs** and **debugger-python** agent skills. Both skills share a common design built on top of the `debugger-core` library and differ only in which debug protocol they use.
+This document describes the internal architecture of the **debugger-nodejs** and **debugger-python** agent skills. Both skills share a common design built on top of the `top-coder-ai-skills-debugger` library and differ only in which debug protocol they use.
 
 ---
 
@@ -39,7 +39,7 @@ This document describes the internal architecture of the **debugger-nodejs** and
 
 ### Key design decisions
 
-1. **Shared core, thin skill scripts.** Each skill's `scripts/debug.py` is ~100 lines -- a CLI argument router that sets `LANGUAGE = "node"` or `LANGUAGE = "python"` and delegates to `DebugSession`. All protocol handling, formatting, and state management lives in `debugger-core`.
+1. **Shared core, thin skill scripts.** Each skill's `scripts/debug.py` is ~100 lines -- a CLI argument router that sets `LANGUAGE = "node"` or `LANGUAGE = "python"` and delegates to `DebugSession`. All protocol handling, formatting, and state management lives in `top-coder-ai-skills-debugger`.
 
 2. **Two modes in one session class.** `DebugSession` operates in either:
    - **Probe mode** (one-shot): creates a temporary in-memory session, runs to a breakpoint, dumps state, and stops. Single process, no daemon.
@@ -295,7 +295,7 @@ skills/
       debug.py                   # CLI router (LANGUAGE = "python")
 
 packages/
-  debugger-core/
+  debugger-core/                 # PyPI package: top-coder-ai-skills-debugger
     debugger_core/
       __init__.py
       session.py                 # DebugSession: orchestration + daemon spawning

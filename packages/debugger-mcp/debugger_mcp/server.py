@@ -3,7 +3,7 @@ MCP server that exposes DAP-based debugging tools.
 
 Thin layer on top of ``debugger_core.session.DebugSession``.
 All heavy lifting (protocol, formatting, adapter spawning) lives in
-the shared ``debugger-core`` package.
+the shared ``top-coder-ai-skills-debugger`` package.
 
 Run::
 

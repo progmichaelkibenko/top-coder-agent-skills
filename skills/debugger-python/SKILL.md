@@ -7,7 +7,25 @@ description: Debug Python applications at runtime using DAP breakpoints and vari
 
 **Why:** Runtime bugs -- silent failures, wrong variable values, incorrect data flow through complex logic -- cannot always be diagnosed from code alone. This skill gives you a real debugger (breakpoints, variable inspection, expression evaluation) instead of scattering `print()` calls and guessing. You use the Debug Adapter Protocol (DAP) via `debugpy` to pause execution and inspect actual state.
 
-**Hard constraints:** Requires `debugpy` installed (`pip install debugpy`) and the `debugger-core` Python package. All commands go through `scripts/debug.py`. Never leave a debug session running after you are done -- always call `stop`.
+**Hard constraints:** Requires the `top-coder-ai-skills-debugger` Python package. `debugpy` is pulled in by it. All commands go through `scripts/debug.py`. Never leave a debug session running after you are done -- always call `stop`.
+
+---
+
+## Setup (before first use)
+
+**Install the package** in the environment used to run the script (globally or in the project):
+
+- **Global (recommended for skills):**  
+  `pip install top-coder-ai-skills-debugger`  
+  or for the current user only: `pip install --user top-coder-ai-skills-debugger`
+
+- **Project (if using uv):**  
+  `uv add top-coder-ai-skills-debugger`
+
+- **Project (if using Poetry):**  
+  `poetry add top-coder-ai-skills-debugger`
+
+**Check that it works:** Run `python scripts/debug.py` with no arguments. If you see "top-coder-ai-skills-debugger is not installed", run one of the install commands above and retry. The script checks for the package and exits with a clear message when it is missing.
 
 ---
 
@@ -26,7 +44,7 @@ Do **not** use for: syntax errors, import errors, or type errors that the linter
 
 ## Available commands
 
-All commands run via `python scripts/debug.py <action> [args]`.
+All commands run via `python scripts/debug.py <action> [args]`. If the script reports that `top-coder-ai-skills-debugger` is not installed, run the install command from **Setup** above, then retry.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
@@ -122,7 +140,7 @@ Stopped (breakpoint) at app.py:8
 
 1. **Python 3.11+** must be on PATH.
 2. **debugpy**: `pip install debugpy`
-3. **debugger-core** Python package: `pip install -e packages/debugger-core` (from the repo root).
+3. **top-coder-ai-skills-debugger** Python package: `pip install -e packages/debugger-core` or `uv sync` (from the repo root).
 
 ---
 

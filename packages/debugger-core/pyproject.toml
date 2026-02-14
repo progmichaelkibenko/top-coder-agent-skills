@@ -1,13 +1,24 @@
 [project]
-name = "debugger-core"
+name = "top-coder-ai-skills-debugger"
 version = "0.1.0"
-description = "Shared DAP client library for AI-driven debugging of Node.js and Python"
+description = "Shared debugger library for Top Coder AI Skills — Node.js (CDP) and Python (DAP)"
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+keywords = ["debugger", "dap", "cdp", "node", "python", "debugging"]
 dependencies = [
     "debugpy",
     "websockets",
 ]
 
+[project.urls]
+# Update with your repo URL before publishing
+Source = "https://github.com/your-org/top-coder-agent-skills"
+Documentation = "https://github.com/your-org/top-coder-agent-skills#readme"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["debugger_core"]

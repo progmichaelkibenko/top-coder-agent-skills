@@ -35,7 +35,7 @@ This document describes the internal architecture of the **debugger-mcp** server
 
 3. **Strategy pattern for tool dispatch.** Each MCP tool is a `(schema, handler, resets_session)` tuple in a registry. Adding a new tool is one dict entry -- no branching logic to modify.
 
-4. **Zero code duplication.** The MCP server is a thin layer (~300 lines) on top of `debugger-core`. All protocol handling, state management, and formatting is in the shared library.
+4. **Zero code duplication.** The MCP server is a thin layer (~300 lines) on top of `top-coder-ai-skills-debugger`. All protocol handling, state management, and formatting is in the shared library.
 
 ---
 
@@ -333,13 +333,13 @@ Waiting for next tool calls...
 packages/
   debugger-mcp/
     ARCHITECTURE.md              # This file
-    pyproject.toml               # Package definition (depends on debugger-core, mcp)
+    pyproject.toml               # Package definition (depends on top-coder-ai-skills-debugger, mcp)
     debugger_mcp/
       __init__.py
       __main__.py                # Entry: python -m debugger_mcp
       server.py                  # MCP server, tool registry, strategy dispatch
 
-  debugger-core/                 # Shared library (see skills/ARCHITECTURE.md)
+  debugger-core/                 # Shared library, PyPI: top-coder-ai-skills-debugger (see skills/ARCHITECTURE.md)
     debugger_core/
       session.py                 # DebugSession orchestration
       cdp_client.py              # Node.js via CDP/WebSocket

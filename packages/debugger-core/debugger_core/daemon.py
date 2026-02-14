@@ -189,7 +189,7 @@ _ACTION_TABLE: dict[str, DaemonAction] = {
 
 
 async def _amain() -> None:
-    parser = argparse.ArgumentParser(description="debugger-core session daemon")
+    parser = argparse.ArgumentParser(description="top-coder-ai-skills-debugger session daemon")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--language", required=True)
     parser.add_argument("--program", required=True)
