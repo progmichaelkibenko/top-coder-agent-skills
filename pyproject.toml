@@ -1,0 +1,16 @@
+[project]
+name = "top-coder-agent-skills"
+version = "0.1.0"
+description = "Agent skills and debugging tools for AI coding assistants"
+requires-python = ">=3.11"
+dependencies = [
+    "debugger-core",
+    "debugger-mcp",
+]
+
+[tool.uv.sources]
+debugger-core = { workspace = true }
+debugger-mcp = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/debugger-core", "packages/debugger-mcp"]

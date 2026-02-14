@@ -1,0 +1,16 @@
+[project]
+name = "debugger-mcp"
+version = "0.1.0"
+description = "MCP server exposing DAP-based debugging tools for AI clients"
+requires-python = ">=3.11"
+dependencies = [
+    "debugger-core",
+    "mcp",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+debugger-core = { workspace = true }

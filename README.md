@@ -1,6 +1,6 @@
 # Top Coder Agent Skills
 
-A curated collection of **agent skills** for AI coding assistants (e.g. Cursor, Claude Code). Each skill teaches the agent how to write and review code using design patterns, SOLID principles, clean code, and solid architecture—so generated code is maintainable, testable, and professional.
+A curated collection of **agent skills** and **debugging tools** for AI coding assistants (e.g. Cursor, Claude Code). Skills teach the agent how to write and review code using design patterns, SOLID principles, clean code, and solid architecture—so generated code is maintainable, testable, and professional.
 
 ## What’s in this repo
 
@@ -10,6 +10,7 @@ Skills in this repo focus on **quality code** and **good design**, with guidance
 - **Architecture** — Layered apps, ports & adapters, domain-driven design, and how to keep boundaries clear.
 - **SOLID principles** — Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion, with concrete do’s and don’ts.
 - **Clean code** — Naming, small functions, low coupling, clear error handling, and readability.
+- **Runtime debugging** — DAP-based debugger skills and MCP server for Node.js and Python, giving the AI agent breakpoints, stepping, and variable inspection instead of `console.log` / `print()` guessing.
 
 Skills are written so an AI agent can **follow** them when generating or refactoring code and when **reviewing** pull requests or existing codebases.
 
@@ -55,6 +56,45 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 | **pipeline-pattern-go** | Implements the Pipeline pattern in Go for data transformation. Use for fixed-sequence stages (parse → normalize → enrich → serialize)—ETL, parsing, data processing. Differs from CoR: runs to completion, no early exit. |
 | **pipeline-pattern-python** | Implements the Pipeline pattern in Python for data transformation. Use for fixed-sequence stages (parse → normalize → enrich → serialize)—ETL, parsing, data processing. Differs from CoR: runs to completion, no early exit. |
 | **pipeline-pattern-react** | Implements the Pipeline pattern in React for data transformation. Use for fixed-sequence stages in the UI—formatting, export, parsing. Differs from CoR: runs to completion, no early exit. |
+| **debugger-nodejs** | Debug Node.js applications at runtime using DAP breakpoints and variable inspection. Use when the user reports a runtime bug, silent failure, unexpected variable values, or when `console.log` debugging is insufficient. Includes interactive stepping and one-shot probe mode. |
+| **debugger-python** | Debug Python applications at runtime using DAP breakpoints and variable inspection. Use when the user reports a runtime bug, silent failure, unexpected variable values, or when `print()` debugging is insufficient. Includes interactive stepping and one-shot probe mode. |
+
+## Packages
+
+This repo also contains Python packages under `packages/` for AI-driven debugging:
+
+| Package | Description |
+|---------|-------------|
+| **debugger-core** | Shared DAP client library. Provides async DAP protocol handling, debug adapters (Node.js via `vscode-node-debug2`, Python via `debugpy`), session management, and LLM-friendly output formatting. Used by both the MCP server and the skill scripts. |
+| **debugger-mcp** | MCP server that exposes debugger tools (`debug_launch`, `debug_breakpoint`, `debug_continue`, `debug_step`, `debug_evaluate`, `debug_stack`, `debug_probe`, `debug_stop`) to any MCP-compatible AI client (Cursor, Claude Code, Claude Desktop). |
+
+### Installing packages
+
+```bash
+# Install the shared library (editable, for development)
+pip install -e packages/debugger-core
+
+# Install the MCP server (editable, for development)
+pip install -e packages/debugger-mcp
+
+# Or with uv workspaces
+uv sync
+```
+
+### MCP server configuration
+
+Add to your MCP client config (e.g. Cursor, Claude Desktop):
+
+```json
+{
+  "mcpServers": {
+    "debugger": {
+      "command": "python3",
+      "args": ["-m", "debugger_mcp"]
+    }
+  }
+}
+```
 
 ## How to use these skills (manual)
 

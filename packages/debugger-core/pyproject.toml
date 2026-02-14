@@ -1,0 +1,13 @@
+[project]
+name = "debugger-core"
+version = "0.1.0"
+description = "Shared DAP client library for AI-driven debugging of Node.js and Python"
+requires-python = ">=3.11"
+dependencies = [
+    "debugpy",
+    "websockets",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

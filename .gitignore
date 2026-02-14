@@ -1,3 +1,10 @@
+# Debug session state (skill scripts + MCP server)
+.debug_session.json
+.debug_session.mcp.json
+
+# Playground (test files for manual debugging)
+playground/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
