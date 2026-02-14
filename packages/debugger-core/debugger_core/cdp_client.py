@@ -95,7 +95,11 @@ class CDPClient:
         ws_url = await self._read_ws_url()
         logger.info("Connecting to Node inspector at %s", ws_url)
 
-        self._ws = await websockets.connect(ws_url, max_size=10 * 1024 * 1024)
+        self._ws = await websockets.connect(
+            ws_url,
+            max_size=10 * 1024 * 1024,
+            ping_interval=None,  # Node inspector doesn't respond to WS pings.
+        )
         self._reader_task = asyncio.create_task(self._read_loop())
 
         # Enable debugger and runtime domains.

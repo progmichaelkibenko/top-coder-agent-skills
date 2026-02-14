@@ -14,6 +14,13 @@ Skills in this repo focus on **quality code** and **good design**, with guidance
 
 Skills are written so an AI agent can **follow** them when generating or refactoring code and when **reviewing** pull requests or existing codebases.
 
+## Architecture docs
+
+Detailed architecture documentation for the debugger subsystem, including protocol-level message flows, state management, and diagrams for each supported language:
+
+- **[Debugger Skills Architecture](skills/ARCHITECTURE.md)** -- How the `debugger-nodejs` and `debugger-python` skills work internally: daemon-based connection persistence, CDP (Node.js) and DAP (Python) protocol flows, probe vs. interactive mode, session file format, and how to add a new language.
+- **[Debugger MCP Server Architecture](packages/debugger-mcp/ARCHITECTURE.md)** -- How the MCP server exposes debugging tools to AI clients: strategy-pattern dispatch, session lifecycle, tool catalog, full request/response diagrams for both Node.js (CDP) and Python (DAP), and how to add a new tool.
+
 ## Languages
 
 Skills and examples are provided for:
@@ -63,10 +70,10 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 
 This repo also contains Python packages under `packages/` for AI-driven debugging:
 
-| Package | Description |
-|---------|-------------|
-| **debugger-core** | Shared DAP client library. Provides async DAP protocol handling, debug adapters (Node.js via `vscode-node-debug2`, Python via `debugpy`), session management, and LLM-friendly output formatting. Used by both the MCP server and the skill scripts. |
-| **debugger-mcp** | MCP server that exposes debugger tools (`debug_launch`, `debug_breakpoint`, `debug_continue`, `debug_step`, `debug_evaluate`, `debug_stack`, `debug_probe`, `debug_stop`) to any MCP-compatible AI client (Cursor, Claude Code, Claude Desktop). |
+| Package | Description | Architecture |
+|---------|-------------|:------------:|
+| **debugger-core** | Shared debugging library. Node.js via CDP (Chrome DevTools Protocol over WebSocket), Python via DAP (`debugpy`). Provides async protocol clients, session management, a background daemon for skill-script persistence, and LLM-friendly output formatting. Used by both the MCP server and the skill scripts. | [skills/ARCHITECTURE.md](skills/ARCHITECTURE.md) |
+| **debugger-mcp** | MCP server that exposes debugger tools (`debug_launch`, `debug_breakpoint`, `debug_continue`, `debug_step`, `debug_evaluate`, `debug_stack`, `debug_variables`, `debug_probe`, `debug_stop`) to any MCP-compatible AI client (Cursor, Claude Code, Claude Desktop). Strategy-pattern dispatch for easy extensibility. | [packages/debugger-mcp/ARCHITECTURE.md](packages/debugger-mcp/ARCHITECTURE.md) |
 
 ### Installing packages
 

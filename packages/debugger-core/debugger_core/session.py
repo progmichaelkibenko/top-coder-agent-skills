@@ -15,6 +15,10 @@ import asyncio
 import json
 import logging
 import os
+import signal
+import socket
+import subprocess
+import sys
 from typing import Any
 
 from debugger_core.adapters.python import PythonAdapter
@@ -69,6 +73,9 @@ class DebugSession:
         self._program: str | None = None
         self._breakpoints: dict[str, list[int]] = {}  # file -> lines
         self._persist_file: str | None = None
+        # Daemon state (for file-backed interactive sessions)
+        self._daemon_port: int | None = None
+        self._daemon_pid: int | None = None
 
     # ------------------------------------------------------------------
     # Constructors
@@ -94,9 +101,20 @@ class DebugSession:
                 session._language = data.get("language", language)
                 session._program = data.get("program")
                 session._breakpoints = data.get("breakpoints", {})
+                session._daemon_port = data.get("daemon_port")
+                session._daemon_pid = data.get("daemon_pid")
                 logger.info("Restored session from %s", session._persist_file)
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("Failed to restore session file: %s", exc)
+
+        # Validate the daemon is still alive.
+        if session._daemon_pid:
+            try:
+                os.kill(session._daemon_pid, 0)
+            except OSError:
+                logger.info("Daemon pid %d is gone, clearing.", session._daemon_pid)
+                session._daemon_port = None
+                session._daemon_pid = None
 
         if language:
             session._language = language
@@ -111,6 +129,10 @@ class DebugSession:
         """Launch the debugger for *program*.
 
         Returns a human-readable status string.
+
+        In file-backed mode (skill scripts), a background **daemon** is
+        spawned so that the debugger connection stays alive between
+        separate CLI invocations.
         """
         lang = language or self._language
         if not lang:
@@ -119,7 +141,11 @@ class DebugSession:
         if lang not in _ALL_LANGUAGES:
             return f"Error: unsupported language '{lang}'. Choose: {', '.join(sorted(_ALL_LANGUAGES))}"
 
-        # Pick the right client based on language.
+        # File-backed mode → delegate to the daemon.
+        if self._persist_file:
+            return await self._start_daemon(program, lang)
+
+        # In-memory mode (MCP server) → direct connection.
         if lang in _CDP_LANGUAGES:
             self._client = CDPClient()
         else:
@@ -141,6 +167,25 @@ class DebugSession:
 
     async def stop(self) -> str:
         """Disconnect and clean up."""
+        # Daemon mode → send stop command, then kill.
+        if self._daemon_port:
+            try:
+                result = await self._send_to_daemon({"action": "stop"})
+            except Exception:
+                result = "Debug session ended (daemon unreachable)."
+
+            if self._daemon_pid:
+                try:
+                    os.kill(self._daemon_pid, signal.SIGTERM)
+                except OSError:
+                    pass
+
+            self._daemon_port = None
+            self._daemon_pid = None
+            self._delete_session_file()
+            return result
+
+        # Direct mode (MCP server).
         if self._client:
             await self._client.disconnect()
             self._client = None
@@ -154,6 +199,13 @@ class DebugSession:
 
     async def add_breakpoint(self, file: str, line: int) -> str:
         """Set a breakpoint at *file*:*line*."""
+        if self._daemon_port:
+            return await self._send_to_daemon({
+                "action": "breakpoint",
+                "file": os.path.abspath(file),
+                "line": line,
+            })
+
         if not self._client:
             return "Error: no active debug session. Call start() first."
 
@@ -182,6 +234,9 @@ class DebugSession:
 
     async def resume(self) -> str:
         """Continue execution until the next breakpoint or termination."""
+        if self._daemon_port:
+            return await self._send_to_daemon({"action": "resume"})
+
         if not self._client:
             return "Error: no active debug session."
 
@@ -196,6 +251,11 @@ class DebugSession:
 
     async def step(self, action: str = "next") -> str:
         """Step over (``next``) or into (``step_in``)."""
+        if self._daemon_port:
+            return await self._send_to_daemon({
+                "action": "step", "step_action": action,
+            })
+
         if not self._client:
             return "Error: no active debug session."
 
@@ -217,6 +277,11 @@ class DebugSession:
 
     async def inspect(self, expression: str) -> str:
         """Evaluate *expression* in the current top frame."""
+        if self._daemon_port:
+            return await self._send_to_daemon({
+                "action": "inspect", "expression": expression,
+            })
+
         if not self._client:
             return "Error: no active debug session."
 
@@ -236,6 +301,9 @@ class DebugSession:
 
     async def get_stack(self) -> str:
         """Return the current stack trace as formatted text."""
+        if self._daemon_port:
+            return await self._send_to_daemon({"action": "stack"})
+
         if not self._client:
             return "Error: no active debug session."
 
@@ -249,6 +317,9 @@ class DebugSession:
 
     async def get_local_variables(self) -> str:
         """Return local variables of the top frame as formatted text."""
+        if self._daemon_port:
+            return await self._send_to_daemon({"action": "variables"})
+
         if not self._client:
             return "Error: no active debug session."
 
@@ -269,40 +340,46 @@ class DebugSession:
         """One-shot: start, break at *line*, dump state, stop.
 
         Returns a comprehensive probe report (location + stack + vars).
+        Always uses a direct in-memory connection (no daemon) because
+        everything happens within a single call.
         """
+        # Use a fresh in-memory session so we get a direct connection
+        # regardless of whether *self* is file-backed.
+        tmp = DebugSession()
+
         # 1. Start
-        start_msg = await self.start(program, language)
+        start_msg = await tmp.start(program, language)
         if start_msg.startswith("Error"):
             return start_msg
 
         # 2. Set breakpoint
-        bp_msg = await self.add_breakpoint(file, line)
+        bp_msg = await tmp.add_breakpoint(file, line)
         if bp_msg.startswith("Error"):
-            await self.stop()
+            await tmp.stop()
             return bp_msg
 
         # 3. Run to breakpoint
         try:
-            stop_info = await self.resume()
+            stop_info = await tmp.resume()
         except Exception as exc:
-            await self.stop()
+            await tmp.stop()
             return f"Error during probe run: {exc}"
 
         if "Error" in stop_info or "no breakpoint" in stop_info.lower():
-            await self.stop()
+            await tmp.stop()
             return stop_info
 
         # 4. Collect data
         try:
-            stack_resp = await self._client.stack_trace()  # type: ignore[union-attr]
+            stack_resp = await tmp._client.stack_trace()  # type: ignore[union-attr]
             frames = stack_resp.get("stackFrames", [])
-            local_vars = await self._fetch_locals()
+            local_vars = await tmp._fetch_locals()
         except Exception as exc:
-            await self.stop()
+            await tmp.stop()
             return f"Error collecting probe data: {exc}"
 
         # 5. Stop
-        await self.stop()
+        await tmp.stop()
 
         reason = stop_info.split("(")[1].split(")")[0] if "(" in stop_info else "breakpoint"
         return format_probe_result(
@@ -376,6 +453,76 @@ class DebugSession:
         return f"Stopped ({reason})."
 
     # ------------------------------------------------------------------
+    # Daemon helpers (file-backed interactive sessions)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_free_port() -> int:
+        """Ask the OS for an unused TCP port."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("", 0))
+            return s.getsockname()[1]
+
+    async def _start_daemon(self, program: str, language: str) -> str:
+        """Spawn a background :class:`SessionDaemon` and wait for readiness."""
+        port = self._find_free_port()
+
+        proc = subprocess.Popen(
+            [
+                sys.executable, "-m", "debugger_core.daemon",
+                "--port", str(port),
+                "--language", language,
+                "--program", os.path.abspath(program),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,  # Fully detach so daemon survives parent exit.
+        )
+
+        # The daemon prints a JSON line to stdout when ready.
+        try:
+            raw = proc.stdout.readline()  # type: ignore[union-attr]
+            msg = json.loads(raw.decode()) if raw else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            msg = {}
+
+        if "error" in msg:
+            return msg["error"]
+        if not msg.get("ready"):
+            return "Error: daemon did not signal readiness."
+
+        self._daemon_port = msg.get("port", port)
+        self._daemon_pid = proc.pid
+        self._language = language
+        self._program = os.path.abspath(program)
+        self._breakpoints = {}
+        self._save()
+
+        return (
+            f"Debugger started for {os.path.basename(program)} ({language}). "
+            f"Ready for breakpoints."
+        )
+
+    async def _send_to_daemon(self, cmd: dict[str, Any]) -> str:
+        """Send a JSON command to the daemon and return the text result."""
+        reader, writer = await asyncio.open_connection(
+            "127.0.0.1", self._daemon_port,
+        )
+        try:
+            writer.write(json.dumps(cmd).encode() + b"\n")
+            await writer.drain()
+
+            raw = await asyncio.wait_for(reader.readline(), timeout=120)
+            resp = json.loads(raw.decode()) if raw else {}
+
+            if "error" in resp:
+                return f"Error (daemon): {resp['error']}"
+            return resp.get("result", "No response from daemon.")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    # ------------------------------------------------------------------
     # Persistence (file-based state for skill scripts)
     # ------------------------------------------------------------------
 
@@ -387,6 +534,8 @@ class DebugSession:
             "language": self._language,
             "program": self._program,
             "breakpoints": self._breakpoints,
+            "daemon_port": self._daemon_port,
+            "daemon_pid": self._daemon_pid,
         }
         try:
             with open(self._persist_file, "w", encoding="utf-8") as f:
