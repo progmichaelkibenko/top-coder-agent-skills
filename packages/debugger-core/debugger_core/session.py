@@ -436,6 +436,13 @@ class DebugSession:
 
         reason = stop_info.get("reason", "unknown")
 
+        # Program exited -- no stack to inspect.
+        if reason == "terminated":
+            output = ""
+            if self._client and self._client.output_lines:
+                output = "\n--- Program output ---\n" + "\n".join(self._client.output_lines)
+            return f"Program terminated.{output}"
+
         # Try to get the current location from the stack.
         if self._client:
             try:

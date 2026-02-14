@@ -182,22 +182,48 @@ class CDPClient:
         return {"breakpoints": results}
 
     async def continue_(self, thread_id: int = 1) -> CDPMessage:
-        """Resume execution. Blocks until the next pause."""
+        """Resume execution. Blocks until the next pause or termination."""
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.resume", {})
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
 
     async def next_(self, thread_id: int = 1) -> CDPMessage:
         """Step over."""
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.stepOver", {})
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
 
     async def step_in(self, thread_id: int = 1) -> CDPMessage:
         """Step into."""
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.stepInto", {})
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
+
+    async def _wait_for_stop_or_terminate(self, timeout: float = 30.0) -> CDPMessage:
+        """Wait for either a paused or terminated event."""
+        assert self.stopped_event is not None
+        assert self.terminated_event is not None
+
+        done, pending = await asyncio.wait(
+            [self.stopped_event, self.terminated_event],
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for fut in pending:
+            fut.cancel()
+
+        if not done:
+            raise asyncio.TimeoutError("No stop or terminate within timeout.")
+
+        winner = done.pop()
+        if winner is self.stopped_event:
+            return winner.result()
+
+        return {"reason": "terminated", "description": "Program exited."}
 
     async def stack_trace(
         self, thread_id: int = 1, levels: int = 20

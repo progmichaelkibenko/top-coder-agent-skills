@@ -183,8 +183,12 @@ class DAPClient:
 
         On the first call, sends ``configurationDone`` which starts
         the debuggee (breakpoints should already be set).
+
+        If the program terminates before hitting a breakpoint, returns
+        a synthetic stopped body with ``reason: "terminated"``.
         """
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
 
         if not self._configured:
             # First resume: complete the launch sequence.
@@ -192,19 +196,50 @@ class DAPClient:
         else:
             await self._request("continue", {"threadId": thread_id})
 
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
 
     async def next_(self, thread_id: int = 1) -> DAPMessage:
         """Step over. Blocks until the next ``stopped`` event."""
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
         await self._request("next", {"threadId": thread_id})
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
 
     async def step_in(self, thread_id: int = 1) -> DAPMessage:
         """Step into. Blocks until the next ``stopped`` event."""
         self.stopped_event = asyncio.get_running_loop().create_future()
+        self.terminated_event = asyncio.get_running_loop().create_future()
         await self._request("stepIn", {"threadId": thread_id})
-        return await asyncio.wait_for(self.stopped_event, timeout=30.0)
+        return await self._wait_for_stop_or_terminate()
+
+    async def _wait_for_stop_or_terminate(self, timeout: float = 30.0) -> DAPMessage:
+        """Wait for either a ``stopped`` or ``terminated`` event.
+
+        Returns the stopped body, or a synthetic body if the program
+        terminated (exit / unhandled exception).
+        """
+        assert self.stopped_event is not None
+        assert self.terminated_event is not None
+
+        done, pending = await asyncio.wait(
+            [self.stopped_event, self.terminated_event],
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel whichever didn't fire.
+        for fut in pending:
+            fut.cancel()
+
+        if not done:
+            raise asyncio.TimeoutError("No stop or terminate within timeout.")
+
+        winner = done.pop()
+        if winner is self.stopped_event:
+            return winner.result()
+
+        # Program terminated -- return a synthetic stop body.
+        return {"reason": "terminated", "description": "Program exited."}
 
     async def stack_trace(
         self, thread_id: int = 1, levels: int = 20
