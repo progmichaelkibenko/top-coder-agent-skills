@@ -68,14 +68,28 @@ Skills follow the [Agent Skills specification](https://agentskills.io/specificat
 
 ## Packages
 
-This repo also contains Python packages under `packages/` for AI-driven debugging:
+This repo also contains Python packages under `packages/` for AI-driven debugging. Both are published on PyPI:
 
-| Package | Description | Architecture |
-|---------|-------------|:------------:|
-| **top-coder-ai-skills-debugger** | Shared debugging library. Node.js via CDP (Chrome DevTools Protocol over WebSocket), Python via DAP (`debugpy`). Provides async protocol clients, session management, a background daemon for skill-script persistence, and LLM-friendly output formatting. Used by both the MCP server and the skill scripts. | [skills/ARCHITECTURE.md](skills/ARCHITECTURE.md) |
-| **debugger-mcp** | MCP server that exposes debugger tools (`debug_launch`, `debug_breakpoint`, `debug_continue`, `debug_step`, `debug_evaluate`, `debug_stack`, `debug_variables`, `debug_probe`, `debug_stop`) to any MCP-compatible AI client (Cursor, Claude Code, Claude Desktop). Strategy-pattern dispatch for easy extensibility. | [packages/debugger-mcp/ARCHITECTURE.md](packages/debugger-mcp/ARCHITECTURE.md) |
+| Package | PyPI | Description |
+|---------|------|-------------|
+| **[top-coder-ai-skills-debugger](https://pypi.org/project/top-coder-ai-skills-debugger/)** | [pypi.org/project/top-coder-ai-skills-debugger](https://pypi.org/project/top-coder-ai-skills-debugger/) | Shared debugging library. Node.js via CDP, Python via DAP (`debugpy`). Session management, daemon for skill scripts, LLM-friendly output. Used by the MCP server and debugger skills. |
+| **[debugger-mcp](https://pypi.org/project/debugger-mcp/)** | [pypi.org/project/debugger-mcp](https://pypi.org/project/debugger-mcp/) | MCP server exposing debugger tools (`debug_launch`, `debug_breakpoint`, `debug_continue`, `debug_step`, `debug_evaluate`, `debug_stack`, `debug_variables`, `debug_probe`, `debug_stop`) to Cursor, Claude Code, etc. Includes the debugger library; one install is enough. |
 
 ### Installing packages
+
+**From PyPI (use without cloning this repo):**
+
+```bash
+# Debugger library (for skill scripts or custom use)
+pip install top-coder-ai-skills-debugger
+# or: uv add top-coder-ai-skills-debugger   |   poetry add top-coder-ai-skills-debugger
+
+# MCP server (includes the debugger library; pipx/uvx for global run)
+pip install debugger-mcp
+# or: uv add debugger-mcp   |   poetry add debugger-mcp
+pipx install debugger-mcp    # then run: debugger-mcp
+uvx debugger-mcp             # run on demand, no install
+```
 
 **From this repo (development):**
 
@@ -90,15 +104,14 @@ pip install -e packages/debugger-mcp
 uv sync
 ```
 
-**Standalone (skill installed elsewhere):** The debugger skills (`debugger-nodejs`, `debugger-python`) and the MCP server require the `top-coder-ai-skills-debugger` package. When the skill is installed via the skills CLI or copied into a project that does not use this repo, install the dependency from PyPI so the scripts can import `debugger_core`:
+**Standalone (skill installed elsewhere):** When the skill is installed via the skills CLI or copied into a project that does not use this repo, install from PyPI so the scripts can import `debugger_core`:
 
 ```bash
 pip install top-coder-ai-skills-debugger
-# or
-uv add top-coder-ai-skills-debugger
+# or: uv add top-coder-ai-skills-debugger   |   poetry add top-coder-ai-skills-debugger
 ```
 
-See [Publishing top-coder-ai-skills-debugger](docs/PUBLISHING.md) for how to publish to PyPI (maintainers).
+See [Publishing to PyPI](docs/PUBLISHING.md) for how to publish both packages (maintainers).
 
 ### MCP server configuration
 

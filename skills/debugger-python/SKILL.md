@@ -25,7 +25,9 @@ description: Debug Python applications at runtime using DAP breakpoints and vari
 - **Project (if using Poetry):**  
   `poetry add top-coder-ai-skills-debugger`
 
-**Check that it works:** Run `python scripts/debug.py` with no arguments. If you see "top-coder-ai-skills-debugger is not installed", run one of the install commands above and retry. The script checks for the package and exits with a clear message when it is missing.
+**One-command setup:** From the project root (or the directory containing `scripts/`), run `python scripts/init.py`. It installs `top-coder-ai-skills-debugger` with pip if missing, or reports that it is already installed.
+
+**Check that it works:** Run `python scripts/debug.py` with no arguments. If you see "top-coder-ai-skills-debugger is not installed", run `python scripts/init.py` or one of the install commands above, then retry. The debug script checks for the package and exits with a clear message when it is missing.
 
 ---
 
