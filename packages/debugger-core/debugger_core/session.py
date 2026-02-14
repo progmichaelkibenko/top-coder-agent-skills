@@ -1,10 +1,15 @@
-"""High-level debug session that wraps the DAP client.
+"""High-level debug session orchestrator.
 
 ``DebugSession`` is the single entry-point consumed by both:
 
 * **MCP server** -- keeps the session in memory (long-running process).
 * **Skill scripts** -- persist session state to a JSON file so that
-  sequential CLI invocations can reconnect to the same adapter.
+  sequential CLI invocations can reconnect via a background daemon.
+
+Supports two debug protocols:
+
+* **CDP** (Chrome DevTools Protocol) -- for Node.js.
+* **DAP** (Debug Adapter Protocol) -- for Python (via ``debugpy``).
 
 All public methods return **plain-text strings** ready to hand to an LLM.
 """
@@ -25,10 +30,16 @@ from debugger_core.adapters.python import PythonAdapter
 from debugger_core.cdp_client import CDPClient
 from debugger_core.dap_client import DAPClient
 from debugger_core.formatters import (
-    format_probe_result,
     format_stack_trace,
     format_stopped_at,
     format_variables,
+)
+from debugger_core.protocol import (
+    TIMEOUT_DAEMON_CMD,
+    TIMEOUT_LAUNCH,
+    TIMEOUT_RESUME,
+    DebugClient,
+    DebugMessage,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +59,7 @@ _ALL_LANGUAGES = _CDP_LANGUAGES | _DAP_LANGUAGES
 
 
 class DebugSession:
-    """Manages a single debug session against a DAP adapter.
+    """Manages a single debug session (CDP or DAP).
 
     Usage (in-memory, e.g. from MCP server)::
 
@@ -68,7 +79,7 @@ class DebugSession:
     """
 
     def __init__(self) -> None:
-        self._client: DAPClient | CDPClient | None = None
+        self._client: DebugClient | None = None
         self._language: str | None = None
         self._program: str | None = None
         self._breakpoints: dict[str, list[int]] = {}  # file -> lines
@@ -125,6 +136,13 @@ class DebugSession:
     # Session lifecycle
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _create_client(language: str) -> DebugClient:
+        """Factory: create the right debug client for *language*."""
+        if language in _CDP_LANGUAGES:
+            return CDPClient()
+        return DAPClient(PythonAdapter())
+
     async def start(self, program: str, language: str | None = None) -> str:
         """Launch the debugger for *program*.
 
@@ -146,12 +164,7 @@ class DebugSession:
             return await self._start_daemon(program, lang)
 
         # In-memory mode (MCP server) → direct connection.
-        if lang in _CDP_LANGUAGES:
-            self._client = CDPClient()
-        else:
-            adapter = PythonAdapter()
-            self._client = DAPClient(adapter)
-
+        self._client = self._create_client(lang)
         self._language = lang
         self._program = os.path.abspath(program)
         self._breakpoints = {}
@@ -199,24 +212,25 @@ class DebugSession:
 
     async def add_breakpoint(self, file: str, line: int) -> str:
         """Set a breakpoint at *file*:*line*."""
+        abs_path = os.path.abspath(file)
+
         if self._daemon_port:
             return await self._send_to_daemon({
                 "action": "breakpoint",
-                "file": os.path.abspath(file),
+                "file": abs_path,
                 "line": line,
             })
 
         if not self._client:
             return "Error: no active debug session. Call start() first."
 
-        file = os.path.abspath(file)
-        existing = self._breakpoints.get(file, [])
+        existing = self._breakpoints.get(abs_path, [])
         if line not in existing:
             existing.append(line)
-        self._breakpoints[file] = existing
+        self._breakpoints[abs_path] = existing
 
         try:
-            resp = await self._client.set_breakpoints(file, existing)
+            resp = await self._client.set_breakpoints(abs_path, existing)
         except Exception as exc:
             return f"Error setting breakpoint: {exc}"
 
@@ -224,7 +238,7 @@ class DebugSession:
         verified = [b for b in bps if b.get("verified")]
         self._save()
         return (
-            f"Breakpoint at {os.path.basename(file)}:{line} "
+            f"Breakpoint at {os.path.basename(abs_path)}:{line} "
             f"({'verified' if len(verified) == len(bps) else 'pending'})"
         )
 
@@ -243,7 +257,7 @@ class DebugSession:
         try:
             stop_info = await self._client.continue_()
         except asyncio.TimeoutError:
-            return "Execution resumed but no breakpoint hit within 30 s."
+            return f"Execution resumed but no breakpoint hit within {int(TIMEOUT_RESUME)} s."
         except Exception as exc:
             return f"Error resuming: {exc}"
 
@@ -265,7 +279,7 @@ class DebugSession:
             else:
                 stop_info = await self._client.next_()
         except asyncio.TimeoutError:
-            return "Step timed out (30 s)."
+            return f"Step timed out ({int(TIMEOUT_RESUME)} s)."
         except Exception as exc:
             return f"Error stepping: {exc}"
 
@@ -340,51 +354,58 @@ class DebugSession:
         """One-shot: start, break at *line*, dump state, stop.
 
         Returns a comprehensive probe report (location + stack + vars).
-        Always uses a direct in-memory connection (no daemon) because
+        Always uses a fresh in-memory session (no daemon) because
         everything happens within a single call.
         """
-        # Use a fresh in-memory session so we get a direct connection
-        # regardless of whether *self* is file-backed.
         tmp = DebugSession()
 
+        try:
+            return await self._run_probe(tmp, program, file, line, language)
+        finally:
+            await tmp.stop()
+
+    @staticmethod
+    async def _run_probe(
+        session: DebugSession,
+        program: str,
+        file: str,
+        line: int,
+        language: str | None,
+    ) -> str:
+        """Execute a probe using *session*'s public API only."""
         # 1. Start
-        start_msg = await tmp.start(program, language)
+        start_msg = await session.start(program, language)
         if start_msg.startswith("Error"):
             return start_msg
 
         # 2. Set breakpoint
-        bp_msg = await tmp.add_breakpoint(file, line)
+        bp_msg = await session.add_breakpoint(file, line)
         if bp_msg.startswith("Error"):
-            await tmp.stop()
             return bp_msg
 
         # 3. Run to breakpoint
-        try:
-            stop_info = await tmp.resume()
-        except Exception as exc:
-            await tmp.stop()
-            return f"Error during probe run: {exc}"
-
+        stop_info = await session.resume()
         if "Error" in stop_info or "no breakpoint" in stop_info.lower():
-            await tmp.stop()
             return stop_info
 
-        # 4. Collect data
-        try:
-            stack_resp = await tmp._client.stack_trace()  # type: ignore[union-attr]
-            frames = stack_resp.get("stackFrames", [])
-            local_vars = await tmp._fetch_locals()
-        except Exception as exc:
-            await tmp.stop()
-            return f"Error collecting probe data: {exc}"
+        # 4. Collect data via public methods
+        stack_text = await session.get_stack()
+        vars_text = await session.get_local_variables()
 
-        # 5. Stop
-        await tmp.stop()
+        # 5. Parse reason from the stop description
+        reason = "breakpoint"
+        if "(" in stop_info and ")" in stop_info:
+            reason = stop_info.split("(")[1].split(")")[0]
 
-        reason = stop_info.split("(")[1].split(")")[0] if "(" in stop_info else "breakpoint"
-        return format_probe_result(
-            os.path.abspath(file), line, frames, local_vars, reason
-        )
+        return "\n".join([
+            format_stopped_at(os.path.abspath(file), line, reason),
+            "",
+            "--- Stack Trace ---",
+            stack_text,
+            "",
+            "--- Local Variables ---",
+            vars_text,
+        ])
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -428,12 +449,8 @@ class DebugSession:
         except Exception:
             return []
 
-    async def _describe_stop(self, stop_info: dict[str, Any] | str) -> str:
+    async def _describe_stop(self, stop_info: DebugMessage) -> str:
         """Build a human-readable description of why we stopped."""
-        # stop_info may already be a formatted string (from resume error paths).
-        if isinstance(stop_info, str):
-            return stop_info
-
         reason = stop_info.get("reason", "unknown")
 
         # Program exited -- no stack to inspect.
@@ -487,15 +504,25 @@ class DebugSession:
         )
 
         # The daemon prints a JSON line to stdout when ready.
+        # Use a thread executor so we don't block the event loop, with a
+        # timeout so a hung daemon doesn't block forever.
+        loop = asyncio.get_running_loop()
         try:
-            raw = proc.stdout.readline()  # type: ignore[union-attr]
+            raw = await asyncio.wait_for(
+                loop.run_in_executor(None, proc.stdout.readline),  # type: ignore[union-attr]
+                timeout=TIMEOUT_LAUNCH,
+            )
             msg = json.loads(raw.decode()) if raw else {}
+        except asyncio.TimeoutError:
+            proc.kill()
+            return "Error: daemon did not start within timeout."
         except (json.JSONDecodeError, UnicodeDecodeError):
             msg = {}
 
         if "error" in msg:
             return msg["error"]
         if not msg.get("ready"):
+            proc.kill()
             return "Error: daemon did not signal readiness."
 
         self._daemon_port = msg.get("port", port)
@@ -519,7 +546,7 @@ class DebugSession:
             writer.write(json.dumps(cmd).encode() + b"\n")
             await writer.drain()
 
-            raw = await asyncio.wait_for(reader.readline(), timeout=120)
+            raw = await asyncio.wait_for(reader.readline(), timeout=TIMEOUT_DAEMON_CMD)
             resp = json.loads(raw.decode()) if raw else {}
 
             if "error" in resp:

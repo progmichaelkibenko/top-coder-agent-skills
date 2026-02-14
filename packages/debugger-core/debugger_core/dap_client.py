@@ -16,6 +16,12 @@ import logging
 from typing import Any, Callable, Coroutine
 
 from debugger_core.adapters.base import DebugAdapter
+from debugger_core.protocol import (
+    TIMEOUT_DISCONNECT,
+    TIMEOUT_LAUNCH,
+    DebugMessage,
+    wait_for_stop_or_terminate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +29,7 @@ logger = logging.getLogger(__name__)
 # Types
 # ---------------------------------------------------------------------------
 
-DAPMessage = dict[str, Any]
+DAPMessage = DebugMessage
 EventCallback = Callable[[DAPMessage], Coroutine[Any, Any, None]]
 
 
@@ -49,7 +55,7 @@ class DAPClient:
     def __init__(self, adapter: DebugAdapter) -> None:
         self._adapter = adapter
         self._process: asyncio.subprocess.Process | None = None
-        self._seq = 1
+        self._seq: int = 1
         self._pending: dict[int, asyncio.Future[DAPMessage]] = {}
         self._reader_task: asyncio.Task[None] | None = None
 
@@ -62,6 +68,9 @@ class DAPClient:
         # Resolves when the adapter fires 'initialized' (ready for breakpoints).
         self._initialized_event: asyncio.Future[None] | None = None
 
+        # Task for the in-flight ``launch`` request (completed after configurationDone).
+        self._launch_task: asyncio.Task[DAPMessage] | None = None
+
         # Optional external listener for *all* events.
         self.on_event: EventCallback | None = None
 
@@ -69,7 +78,7 @@ class DAPClient:
         self.output_lines: list[str] = []
 
         # Track whether configurationDone has been sent.
-        self._configured = False
+        self._configured: bool = False
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -120,7 +129,7 @@ class DAPClient:
         launch_task = asyncio.ensure_future(self._request("launch", launch_args))
 
         # Wait for the 'initialized' event (adapter is ready for breakpoints).
-        await asyncio.wait_for(self._initialized_event, timeout=10.0)
+        await asyncio.wait_for(self._initialized_event, timeout=TIMEOUT_LAUNCH)
 
         # Store the launch task -- it will complete after configurationDone.
         self._launch_task = launch_task
@@ -133,21 +142,24 @@ class DAPClient:
         self._configured = True
         await self._request("configurationDone", {})
         # Now the launch response should come back.
-        if hasattr(self, "_launch_task") and not self._launch_task.done():
-            await asyncio.wait_for(self._launch_task, timeout=10.0)
+        if self._launch_task is not None and not self._launch_task.done():
+            await asyncio.wait_for(self._launch_task, timeout=TIMEOUT_LAUNCH)
 
     async def disconnect(self) -> None:
         """Gracefully disconnect and kill the adapter."""
         if self._process and self._process.returncode is None:
             try:
-                await self._request(
-                    "disconnect", {"restart": False, "terminateDebuggee": True}
+                await asyncio.wait_for(
+                    self._request(
+                        "disconnect", {"restart": False, "terminateDebuggee": True}
+                    ),
+                    timeout=TIMEOUT_DISCONNECT,
                 )
             except Exception:
                 pass  # best-effort
             self._process.terminate()
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=3.0)
+                await asyncio.wait_for(self._process.wait(), timeout=TIMEOUT_DISCONNECT)
             except asyncio.TimeoutError:
                 self._process.kill()
 
@@ -191,55 +203,31 @@ class DAPClient:
         self.terminated_event = asyncio.get_running_loop().create_future()
 
         if not self._configured:
-            # First resume: complete the launch sequence.
             await self._ensure_configured()
         else:
             await self._request("continue", {"threadId": thread_id})
 
-        return await self._wait_for_stop_or_terminate()
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
+        )
 
     async def next_(self, thread_id: int = 1) -> DAPMessage:
         """Step over. Blocks until the next ``stopped`` event."""
         self.stopped_event = asyncio.get_running_loop().create_future()
         self.terminated_event = asyncio.get_running_loop().create_future()
         await self._request("next", {"threadId": thread_id})
-        return await self._wait_for_stop_or_terminate()
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
+        )
 
     async def step_in(self, thread_id: int = 1) -> DAPMessage:
         """Step into. Blocks until the next ``stopped`` event."""
         self.stopped_event = asyncio.get_running_loop().create_future()
         self.terminated_event = asyncio.get_running_loop().create_future()
         await self._request("stepIn", {"threadId": thread_id})
-        return await self._wait_for_stop_or_terminate()
-
-    async def _wait_for_stop_or_terminate(self, timeout: float = 30.0) -> DAPMessage:
-        """Wait for either a ``stopped`` or ``terminated`` event.
-
-        Returns the stopped body, or a synthetic body if the program
-        terminated (exit / unhandled exception).
-        """
-        assert self.stopped_event is not None
-        assert self.terminated_event is not None
-
-        done, pending = await asyncio.wait(
-            [self.stopped_event, self.terminated_event],
-            timeout=timeout,
-            return_when=asyncio.FIRST_COMPLETED,
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
         )
-
-        # Cancel whichever didn't fire.
-        for fut in pending:
-            fut.cancel()
-
-        if not done:
-            raise asyncio.TimeoutError("No stop or terminate within timeout.")
-
-        winner = done.pop()
-        if winner is self.stopped_event:
-            return winner.result()
-
-        # Program terminated -- return a synthetic stop body.
-        return {"reason": "terminated", "description": "Program exited."}
 
     async def stack_trace(
         self, thread_id: int = 1, levels: int = 20
@@ -282,6 +270,14 @@ class DAPClient:
     # ------------------------------------------------------------------
     # Protocol internals
     # ------------------------------------------------------------------
+
+    def _fail_pending(self, reason: str) -> None:
+        """Reject all in-flight request futures so callers don't hang."""
+        err = ConnectionError(reason)
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(err)
+        self._pending.clear()
 
     async def _request(self, command: str, arguments: dict[str, Any]) -> DAPMessage:
         """Send a DAP request and wait for the matching response."""
@@ -334,11 +330,15 @@ class DAPClient:
                 else:
                     logger.debug("Ignoring DAP message type=%s", msg_type)
 
-        except (asyncio.IncompleteReadError, asyncio.CancelledError):
-            # Adapter closed or we were cancelled -- that's fine.
-            pass
+        except asyncio.CancelledError:
+            return  # don't touch futures on intentional cancel
+        except asyncio.IncompleteReadError:
+            logger.debug("Adapter closed the stream.")
         except Exception:
             logger.exception("Error in DAP read loop")
+
+        # Reject any in-flight requests so callers don't hang.
+        self._fail_pending("Adapter connection lost.")
 
     async def _handle_response(self, msg: DAPMessage) -> None:
         req_seq: int = msg.get("request_seq", -1)

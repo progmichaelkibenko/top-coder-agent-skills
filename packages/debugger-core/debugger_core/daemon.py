@@ -4,9 +4,9 @@ Holds the debugger connection (CDP or DAP) alive between separate CLI
 invocations.  Skill scripts communicate with the daemon over a TCP
 socket on ``127.0.0.1``.
 
-Launched automatically by :pymethod:`DebugSession.start` when the
-session is file-backed.  Not used by the MCP server (which keeps its
-own long-lived ``DebugSession`` in-process).
+Launched automatically by :meth:`DebugSession.start` when the session
+is file-backed.  Not used by the MCP server (which keeps its own
+long-lived ``DebugSession`` in-process).
 
 CLI (used by session.py -- not called directly)::
 
@@ -21,18 +21,38 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, Awaitable
+
+from debugger_core.protocol import TIMEOUT_DAEMON_CMD
+
+if TYPE_CHECKING:
+    from debugger_core.session import DebugSession
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Daemon action type
+# ---------------------------------------------------------------------------
+
+DaemonAction = Callable[["SessionDaemon", dict[str, Any]], Awaitable[str]]
+
+
+# ---------------------------------------------------------------------------
+# SessionDaemon
+# ---------------------------------------------------------------------------
+
 
 class SessionDaemon:
-    """TCP server that wraps a live :class:`DebugSession`."""
+    """TCP server that wraps a live :class:`DebugSession`.
+
+    Actions are dispatched via ``_ACTION_TABLE`` (strategy pattern),
+    keeping the handler logic small and extensible.
+    """
 
     def __init__(self, port: int) -> None:
         self.port = port
-        self._session: Any = None  # DebugSession (imported lazily)
-        self._shutdown = asyncio.Event()
+        self.session: DebugSession | None = None
+        self.shutdown_event = asyncio.Event()
 
     # ------------------------------------------------------------------
     # Bootstrap
@@ -43,29 +63,28 @@ class SessionDaemon:
         # Import here to avoid circular import (session imports daemon path).
         from debugger_core.session import DebugSession  # noqa: PLC0415
 
-        self._session = DebugSession()
-        result = await self._session.start(program, language)
+        self.session = DebugSession()
+        result = await self.session.start(program, language)
 
         if result.startswith("Error"):
-            # Signal failure to the parent process that spawned us.
             print(json.dumps({"error": result}), flush=True)
             sys.exit(1)
 
-        server = await asyncio.start_server(
+        tcp_server = await asyncio.start_server(
             self._handle_client, "127.0.0.1", self.port,
         )
 
-        # Tell the parent we're ready (it reads this line from stdout).
-        addr = server.sockets[0].getsockname()
+        # Signal readiness to the parent process (reads this from stdout).
+        addr = tcp_server.sockets[0].getsockname()
         print(json.dumps({"ready": True, "port": addr[1]}), flush=True)
 
-        async with server:
-            await self._shutdown.wait()
+        async with tcp_server:
+            await self.shutdown_event.wait()
 
-        # Graceful teardown -- stop the debugger & node/python process.
+        # Graceful teardown.
         try:
-            await self._session.stop()
-        except Exception:
+            await self.session.stop()
+        except Exception:  # noqa: BLE001
             pass
 
     # ------------------------------------------------------------------
@@ -78,7 +97,7 @@ class SessionDaemon:
         writer: asyncio.StreamWriter,
     ) -> None:
         try:
-            raw = await asyncio.wait_for(reader.readline(), timeout=120)
+            raw = await asyncio.wait_for(reader.readline(), timeout=TIMEOUT_DAEMON_CMD)
             if not raw:
                 return
 
@@ -87,50 +106,81 @@ class SessionDaemon:
 
             writer.write(json.dumps({"result": result}).encode() + b"\n")
             await writer.drain()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - daemon must not crash on bad input
             try:
                 writer.write(
                     json.dumps({"error": str(exc)}).encode() + b"\n"
                 )
                 await writer.drain()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
         finally:
             writer.close()
             await writer.wait_closed()
 
     # ------------------------------------------------------------------
-    # Command dispatch
+    # Command dispatch (strategy table)
     # ------------------------------------------------------------------
 
     async def _dispatch(self, cmd: dict[str, Any]) -> str:
-        action = cmd.get("action", "")
+        action_name = cmd.get("action", "")
+        handler = _ACTION_TABLE.get(action_name)
+        if handler is None:
+            return f"Unknown daemon action: {action_name}"
+        return await handler(self, cmd)
 
-        if action == "breakpoint":
-            return await self._session.add_breakpoint(
-                file=cmd["file"], line=int(cmd["line"]),
-            )
 
-        if action == "resume":
-            return await self._session.resume()
+# ---------------------------------------------------------------------------
+# Action strategies
+# ---------------------------------------------------------------------------
 
-        if action == "step":
-            return await self._session.step(cmd.get("step_action", "next"))
 
-        if action == "inspect":
-            return await self._session.inspect(cmd["expression"])
+async def _do_breakpoint(daemon: SessionDaemon, cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.add_breakpoint(
+        file=cmd["file"], line=int(cmd["line"]),
+    )
 
-        if action == "variables":
-            return await self._session.get_local_variables()
 
-        if action == "stack":
-            return await self._session.get_stack()
+async def _do_resume(daemon: SessionDaemon, _cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.resume()
 
-        if action == "stop":
-            self._shutdown.set()
-            return "Debug session ended."
 
-        return f"Unknown daemon action: {action}"
+async def _do_step(daemon: SessionDaemon, cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.step(cmd.get("step_action", "next"))
+
+
+async def _do_inspect(daemon: SessionDaemon, cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.inspect(cmd["expression"])
+
+
+async def _do_variables(daemon: SessionDaemon, _cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.get_local_variables()
+
+
+async def _do_stack(daemon: SessionDaemon, _cmd: dict[str, Any]) -> str:
+    assert daemon.session is not None
+    return await daemon.session.get_stack()
+
+
+async def _do_stop(daemon: SessionDaemon, _cmd: dict[str, Any]) -> str:
+    daemon.shutdown_event.set()
+    return "Debug session ended."
+
+
+_ACTION_TABLE: dict[str, DaemonAction] = {
+    "breakpoint": _do_breakpoint,
+    "resume":     _do_resume,
+    "step":       _do_step,
+    "inspect":    _do_inspect,
+    "variables":  _do_variables,
+    "stack":      _do_stack,
+    "stop":       _do_stop,
+}
 
 
 # ---------------------------------------------------------------------------

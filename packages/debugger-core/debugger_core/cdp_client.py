@@ -5,8 +5,9 @@ Spawns ``node --inspect-brk`` and communicates with V8's built-in
 inspector over WebSocket.  Zero npm dependencies required -- only
 ``node`` on PATH.
 
-Exposes the **same public API** as ``DAPClient`` so ``DebugSession``
-can use either one transparently.
+Implements the :class:`~debugger_core.protocol.DebugClient` protocol
+(same public API as ``DAPClient``), so ``DebugSession`` can use
+either client transparently.
 """
 
 from __future__ import annotations
@@ -21,13 +22,18 @@ from typing import Any
 
 import websockets
 
+from debugger_core.protocol import (
+    TIMEOUT_DISCONNECT,
+    TIMEOUT_LAUNCH,
+    TIMEOUT_READLINE,
+    DebugMessage,
+    wait_for_stop_or_terminate,
+)
+
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Types (mirrors dap_client.py)
-# ---------------------------------------------------------------------------
-
-CDPMessage = dict[str, Any]
+# CDPMessage is kept as a local alias for readability in this file.
+CDPMessage = DebugMessage
 
 # ---------------------------------------------------------------------------
 # CDP Client
@@ -51,11 +57,11 @@ class CDPClient:
     def __init__(self) -> None:
         self._process: asyncio.subprocess.Process | None = None
         self._ws: websockets.ClientConnection | None = None
-        self._msg_id = 1
+        self._msg_id: int = 1
         self._pending: dict[int, asyncio.Future[CDPMessage]] = {}
         self._reader_task: asyncio.Task[None] | None = None
 
-        # Same public surface as DAPClient:
+        # Public surface (satisfies DebugClient protocol):
         self.stopped_event: asyncio.Future[CDPMessage] | None = None
         self.terminated_event: asyncio.Future[None] | None = None
         self.on_event = None
@@ -63,7 +69,13 @@ class CDPClient:
 
         # Internal CDP state
         self._scripts: dict[str, str] = {}  # scriptId -> url
-        self._breakpoint_ids: list[str] = []
+        self._breakpoint_ids: dict[str, list[str]] = {}  # file -> [breakpointId]
+
+        # Frame / variable state -- per-instance, NOT class-level.
+        self._last_call_frames: list[CDPMessage] = []
+        self._last_stack_frames: list[CDPMessage] = []
+        self._object_ids: dict[int, str] = {}
+        self._next_var_ref: int = 1
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -83,7 +95,7 @@ class CDPClient:
 
         self._process = await asyncio.create_subprocess_exec(
             node,
-            f"--inspect-brk=0",
+            "--inspect-brk=0",
             os.path.abspath(program),
             cwd=resolved_cwd,
             stdin=asyncio.subprocess.PIPE,
@@ -110,7 +122,7 @@ class CDPClient:
         # initial Debugger.paused event so we are in a known state.
         self.stopped_event = asyncio.get_running_loop().create_future()
         await self._send("Runtime.runIfWaitingForDebugger", {})
-        await asyncio.wait_for(self.stopped_event, timeout=10.0)
+        await asyncio.wait_for(self.stopped_event, timeout=TIMEOUT_LAUNCH)
         self.stopped_event = None  # consumed; ready for breakpoints
 
         return {}
@@ -134,7 +146,7 @@ class CDPClient:
         if self._process and self._process.returncode is None:
             self._process.terminate()
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=3.0)
+                await asyncio.wait_for(self._process.wait(), timeout=TIMEOUT_DISCONNECT)
             except asyncio.TimeoutError:
                 self._process.kill()
             self._process = None
@@ -148,17 +160,22 @@ class CDPClient:
     async def set_breakpoints(
         self, file_path: str, lines: list[int]
     ) -> CDPMessage:
-        """Set breakpoints. Returns DAP-shaped response for compatibility."""
-        # Remove old breakpoints first.
-        for bp_id in self._breakpoint_ids:
+        """Set breakpoints for *file_path*. Returns DAP-shaped response.
+
+        Only removes previous breakpoints for *this* file, leaving
+        breakpoints in other files untouched (mirrors DAP semantics).
+        """
+        abs_path = os.path.abspath(file_path)
+
+        # Remove old breakpoints for THIS file only.
+        for bp_id in self._breakpoint_ids.get(abs_path, []):
             try:
                 await self._send("Debugger.removeBreakpoint", {"breakpointId": bp_id})
             except Exception:
                 pass
-        self._breakpoint_ids = []
+        self._breakpoint_ids[abs_path] = []
 
         results = []
-        abs_path = os.path.abspath(file_path)
         file_url = f"file://{abs_path}"
 
         for line in lines:
@@ -171,7 +188,7 @@ class CDPClient:
                     },
                 )
                 bp_id = resp.get("breakpointId", "")
-                self._breakpoint_ids.append(bp_id)
+                self._breakpoint_ids[abs_path].append(bp_id)
                 locations = resp.get("locations", [])
                 actual_line = locations[0]["lineNumber"] + 1 if locations else line
                 results.append({"verified": True, "line": actual_line})
@@ -186,44 +203,27 @@ class CDPClient:
         self.stopped_event = asyncio.get_running_loop().create_future()
         self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.resume", {})
-        return await self._wait_for_stop_or_terminate()
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
+        )
 
     async def next_(self, thread_id: int = 1) -> CDPMessage:
         """Step over."""
         self.stopped_event = asyncio.get_running_loop().create_future()
         self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.stepOver", {})
-        return await self._wait_for_stop_or_terminate()
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
+        )
 
     async def step_in(self, thread_id: int = 1) -> CDPMessage:
         """Step into."""
         self.stopped_event = asyncio.get_running_loop().create_future()
         self.terminated_event = asyncio.get_running_loop().create_future()
         await self._send("Debugger.stepInto", {})
-        return await self._wait_for_stop_or_terminate()
-
-    async def _wait_for_stop_or_terminate(self, timeout: float = 30.0) -> CDPMessage:
-        """Wait for either a paused or terminated event."""
-        assert self.stopped_event is not None
-        assert self.terminated_event is not None
-
-        done, pending = await asyncio.wait(
-            [self.stopped_event, self.terminated_event],
-            timeout=timeout,
-            return_when=asyncio.FIRST_COMPLETED,
+        return await wait_for_stop_or_terminate(
+            self.stopped_event, self.terminated_event,
         )
-
-        for fut in pending:
-            fut.cancel()
-
-        if not done:
-            raise asyncio.TimeoutError("No stop or terminate within timeout.")
-
-        winner = done.pop()
-        if winner is self.stopped_event:
-            return winner.result()
-
-        return {"reason": "terminated", "description": "Program exited."}
 
     async def stack_trace(
         self, thread_id: int = 1, levels: int = 20
@@ -245,7 +245,7 @@ class CDPClient:
         scope_chain = frame.get("scopeChain", [])
 
         scopes = []
-        for i, scope in enumerate(scope_chain):
+        for scope in scope_chain:
             scope_type = scope.get("type", "")
             obj = scope.get("object", {})
             scopes.append({
@@ -310,8 +310,6 @@ class CDPClient:
         context: str = "repl",
     ) -> CDPMessage:
         """Evaluate an expression. Returns DAP-shaped result."""
-        params: dict[str, Any] = {"expression": expression}
-
         # If we have a frame, evaluate in that frame's context.
         if frame_id is not None and 0 <= frame_id < len(self._last_call_frames):
             call_frame_id = self._last_call_frames[frame_id].get("callFrameId")
@@ -320,18 +318,20 @@ class CDPClient:
                     "Debugger.evaluateOnCallFrame",
                     {"callFrameId": call_frame_id, "expression": expression},
                 )
-                result_obj = resp.get("result", {})
-                return {
-                    "result": result_obj.get("description", result_obj.get("value", str(result_obj))),
-                    "type": result_obj.get("type", ""),
-                }
+                return self._format_eval_result(resp)
 
-        resp = await self._send("Runtime.evaluate", params)
+        resp = await self._send("Runtime.evaluate", {"expression": expression})
+        return self._format_eval_result(resp)
+
+    @staticmethod
+    def _format_eval_result(resp: CDPMessage) -> CDPMessage:
+        """Convert a CDP evaluate response to DAP-shaped result."""
         result_obj = resp.get("result", {})
-        return {
-            "result": result_obj.get("description", result_obj.get("value", str(result_obj))),
-            "type": result_obj.get("type", ""),
-        }
+        value = result_obj.get(
+            "description",
+            result_obj.get("value", str(result_obj)),
+        )
+        return {"result": value, "type": result_obj.get("type", "")}
 
     async def threads(self) -> CDPMessage:
         """Node is single-threaded. Return one thread."""
@@ -344,12 +344,22 @@ class CDPClient:
     async def _read_ws_url(self) -> str:
         """Read the inspector WebSocket URL from node's stderr."""
         assert self._process and self._process.stderr
-        deadline = asyncio.get_event_loop().time() + 10.0
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + TIMEOUT_LAUNCH
 
-        while asyncio.get_event_loop().time() < deadline:
+        while loop.time() < deadline:
             line_bytes = await asyncio.wait_for(
-                self._process.stderr.readline(), timeout=5.0
+                self._process.stderr.readline(), timeout=TIMEOUT_READLINE,
             )
+
+            # Empty read means node exited before printing the WS URL.
+            if not line_bytes:
+                exit_code = self._process.returncode
+                raise RuntimeError(
+                    f"Node process exited (code={exit_code}) before "
+                    f"printing the inspector WebSocket URL."
+                )
+
             line = line_bytes.decode("utf-8", errors="replace").strip()
             logger.debug("node stderr: %s", line)
 
@@ -389,11 +399,14 @@ class CDPClient:
                     await self._handle_event(msg)
 
         except websockets.ConnectionClosed:
-            pass
+            logger.debug("WebSocket connection closed.")
         except asyncio.CancelledError:
-            pass
+            return  # don't touch futures on intentional cancel
         except Exception:
             logger.exception("Error in CDP read loop")
+
+        # Reject any in-flight requests so callers don't hang.
+        self._fail_pending("Connection lost.")
 
     async def _handle_event(self, msg: CDPMessage) -> None:
         method = msg.get("method", "")
@@ -430,13 +443,31 @@ class CDPClient:
             )
             self.output_lines.append(text)
 
-        elif method == "Inspector.detached" or method == "Runtime.executionContextDestroyed":
+        elif method == "Runtime.exceptionThrown":
+            # Uncaught exception -- capture the error text for output.
+            exception_details = params.get("exceptionDetails", {})
+            exc_obj = exception_details.get("exception", {})
+            text = exc_obj.get(
+                "description",
+                exception_details.get("text", "Uncaught exception"),
+            )
+            self.output_lines.append(text)
+
+        elif method in ("Inspector.detached", "Runtime.executionContextDestroyed"):
             if self.terminated_event and not self.terminated_event.done():
                 self.terminated_event.set_result(None)
 
     # ------------------------------------------------------------------
     # Internal: CDP request/response
     # ------------------------------------------------------------------
+
+    def _fail_pending(self, reason: str) -> None:
+        """Reject all in-flight request futures so callers don't hang."""
+        err = ConnectionError(reason)
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.set_exception(err)
+        self._pending.clear()
 
     async def _send(self, method: str, params: dict[str, Any]) -> CDPMessage:
         """Send a CDP command and wait for the response."""
@@ -457,14 +488,6 @@ class CDPClient:
     # ------------------------------------------------------------------
     # Internal: CDP -> DAP frame conversion
     # ------------------------------------------------------------------
-
-    # We use frame index as the "frameId" for DAP compatibility.
-    _last_call_frames: list[CDPMessage] = []
-    _last_stack_frames: list[CDPMessage] = []
-
-    # Object ID storage for variables references.
-    _object_ids: dict[int, str] = {}
-    _next_var_ref: int = 1
 
     def _store_object_id(self, object_id: str) -> int:
         """Store a CDP objectId and return a numeric variablesReference."""
